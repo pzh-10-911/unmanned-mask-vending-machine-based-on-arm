@@ -66,7 +66,7 @@
 |--------|-----|------|
 | `threaded` | True | Flask 开启多线程处理请求 |
 | `host` | `0.0.0.0` | 监听所有网络接口，允许手机访问 |
-| `port` | 80 | 生产环境用 80 端口，开发可用 5000 |
+| `port` | 5000 | Flask 开发服务器默认端口 |
 | `debug` | False | 生产关闭 debug，避免双进程 |
 
 **线程安全问题：**
@@ -116,7 +116,7 @@
 
 | 参数 | 值 | 说明 |
 |------|-----|------|
-| 轮询间隔 | 1 秒 | `setInterval(fetchStatus, 1000)` |
+| 轮询间隔 | 1.5 秒 | `setInterval(fetchStatus, 1500)` |
 | 首次调用 | 立即 | `fetchStatus()` 在页面加载时马上执行 |
 | 超时处理 | 无 | 纯 LAN 环境，不设超时重试 |
 
@@ -124,9 +124,11 @@
 
 | 参数 | 值 | 说明 |
 |------|-----|------|
+| 初始延迟 | 2 秒 | 避免手快速划过误触发 |
 | 轮询间隔 | 0.5 秒 | `IR_DETECT_INTERVAL = 0.5` |
+| 连续命中 | 3 次 | 需连续 3 次（1.5 秒）稳定遮挡才确认取货 |
 | 超时时间 | 30 秒 | `DISPENSE_TIMEOUT = 30` |
-| 最大检测次数 | 60 次 | `IR_RETRY_COUNT = 60` |
+| 最大检测次数 | 56 次 | `IR_RETRY_COUNT = (30-2)/0.5 = 56` |
 
 ### 数据流分层
 
@@ -163,7 +165,7 @@
 | JSON 文件损坏 | `logic/inventory` | 备份损坏文件，重建默认库存 | 无感恢复 |
 | 按键抖动 | `hardware/button` | 200ms 防抖（软件去抖） | 无感 |
 | 非法状态操作 | `logic/state_machine` | 返回 `{"success": false, "msg":"..."}` | 前端弹窗提示 |
-| 传感器误检测 | `hardware/ir_sensor` | 轮询滤波（连续 2 次命中才算有效） | 无感 |
+| 传感器误检测 | `hardware/ir_sensor` | 2秒初始延迟 + 连续3次命中才算有效 | 无感 |
 | 前端网络异常 | `static/script.js` | `try/catch` 包裹 fetch | "连接失败，请刷新" |
 | 按钮重复点击 | `static/script.js` | 确认/投币后按钮立即 disabled | 按钮灰色 |
 
@@ -253,7 +255,8 @@ mask-vending-machine/
 ├── hardware/                 # ——— Person A 负责
 │   ├── __init__.py
 │   ├── gpio_init.py          # GPIO.setmode/setup，硬件初始化
-│   ├── led.py                # DispenserLED 类：出货指示灯控制
+│   ├── led.py                # RGBLED 类：三色出货指示灯控制
+│   ├── buzzer.py             # Buzzer 类：无源蜂鸣器 PWM 驱动
 │   ├── ir_sensor.py          # IRSensor 类：红外传感器读取
 │   └── button.py             # CoinButton 类：投币按键检测
 ├── logic/                    # ——— Person B 负责
@@ -484,12 +487,22 @@ class StateMachine:
     def cancel(self) -> dict:
         """
         取消交易。
-        要求: state 为 SELECTED 或 DISPENSE
+        要求: 无状态限制（IDLE 余额 > 0 时也可退币）
         流程:
-        1. balance = 0（不退还到余额）
+        1. balance = 0
         2. state = IDLE
         3. selected_channel = None
         返回: {"success": True, "balance": 0}
+        """
+
+    def cancel_select(self) -> dict:
+        """
+        取消选择。
+        要求: state 为 SELECTED
+        流程:
+        1. state = IDLE, selected_channel = None
+        2. 保留余额不变
+        返回: {"success": True, "msg": "选择已取消"}
         """
 
     def complete(self) -> dict:
@@ -524,6 +537,7 @@ class StateMachine:
 | `sm.add_coin()` | POST /api/coin |
 | `sm.select(ch)` | POST /api/select/<id> |
 | `sm.confirm(on_dispense)` | POST /api/confirm |
+| `sm.cancel_select()` | POST /api/cancel_select |
 | `sm.cancel()` | POST /api/cancel |
 | `sm.complete()` | 红外检测到口罩时 |
 | `sm.get_state()` | GET /api/status |
@@ -613,14 +627,21 @@ class Inventory:
 
 ```python
 # ===== GPIO 引脚 =====
-LED_CHANNEL_0 = 17
-LED_CHANNEL_1 = 18
-LED_CHANNEL_2 = 19
-LED_CHANNEL_ALL = [LED_CHANNEL_0, LED_CHANNEL_1, LED_CHANNEL_2]
-IR_SENSOR_PIN = 23
-STATUS_LED_PIN = 22
-BUZZER_PIN = 26
-COIN_BUTTON_PIN = 27
+RGB_R_PIN = 17          # RGB-LED 红色通道（货道A 成人口罩）
+RGB_G_PIN = 18          # RGB-LED 绿色通道（货道B 儿童口罩）
+RGB_B_PIN = 19          # RGB-LED 蓝色通道（货道C N95）
+RGB_PINS = [RGB_R_PIN, RGB_G_PIN, RGB_B_PIN]
+IR_SENSOR_PIN = 23      # 红外传感器 — 取货口检测
+BUZZER_PIN = 26         # 蜂鸣器
+COIN_BUTTON_PIN = 27    # 投币按键
+# GPIO22 空闲备用（原系统状态LED已取消，功能由RGB LED替代）
+
+# RGB-LED 颜色映射（按货道）
+CHANNEL_COLORS = {
+    0: (1, 0, 0),       # 红 — 成人口罩
+    1: (0, 1, 0),       # 绿 — 儿童口罩
+    2: (0, 0, 1),       # 蓝 — N95口罩
+}
 
 # ===== 价格和库存 =====
 CHANNEL_CONFIG = [
@@ -630,9 +651,9 @@ CHANNEL_CONFIG = [
 ]
 
 # ===== 时间参数 =====
-DISPENSE_TIMEOUT = 30      # 出货等待超时（秒）
-IR_DETECT_INTERVAL = 0.5   # 红外轮询间隔（秒）
-IR_RETRY_COUNT = 60        # 超时前的检测次数 = DISPENSE_TIMEOUT / IR_DETECT_INTERVAL
+DISPENSE_TIMEOUT = 30       # 出货等待超时（秒）
+IR_DETECT_INTERVAL = 0.5    # 红外轮询间隔（秒）
+IR_RETRY_COUNT = 56         # 超时前的检测次数 (30-2)/0.5=56（减去2秒初始延迟）
 ```
 
 ---
@@ -690,16 +711,18 @@ def on_coin_pressed():
     """由 CoinButton 回调。调用 sm.add_coin()，无需其他操作。"""
 ```
 
-#### API 端点详细定义（7个）
+#### API 端点详细定义（9个）
 
 ```python
 # ---- 1. 主页 ----
 # GET /
 # 返回: static/index.html 内容
-# Content-Type: text/html
+# Content-Type: text/html; charset=utf-8（显式设置避免 Windows 上误返回 text/plain）
 @app.route('/')
 def index():
-    return send_from_directory('static', 'index.html')
+    with open('static/index.html', 'r', encoding='utf-8') as f:
+        html = f.read()
+    return html, 200, {'Content-Type': 'text/html; charset=utf-8'}
 
 
 # ---- 2. 状态查询 ----
@@ -754,17 +777,32 @@ def api_confirm():
     return jsonify(result)
 
 
-# ---- 6. 取消交易 ----
-# POST /api/cancel
+# ---- 6. 取消选择 ----
+# POST /api/cancel_select
 # 请求体: 无
-# 响应: {"success": true, "balance": 0}
-@app.route('/api/cancel', methods=['POST'])
-def api_cancel():
-    result = sm.cancel()
+# 响应: {"success": true, "msg": "选择已取消"}
+# 说明: 保留余额，回到 IDLE 状态，关闭 LED
+@app.route('/api/cancel_select', methods=['POST'])
+def api_cancel_select():
+    result = sm.cancel_select()
+    rgb.off()
     return jsonify(result)
 
 
-# ---- 7. 交易记录 ----
+# ---- 7. 取消交易 ----
+# POST /api/cancel
+# 请求体: 无
+# 响应: {"success": true, "balance": 0}
+# 说明: 余额清零，退币蜂鸣，关闭 LED
+@app.route('/api/cancel', methods=['POST'])
+def api_cancel():
+    result = sm.cancel()
+    rgb.off()
+    buzzer.beep(freq=2000, duration=0.5)
+    return jsonify(result)
+
+
+# ---- 8. 交易记录 ----
 # GET /api/logs
 # 示例响应:
 # [
@@ -773,6 +811,29 @@ def api_cancel():
 @app.route('/api/logs')
 def api_logs():
     return jsonify(inv.get_transactions())
+
+
+# ---- 9. 系统重置 ----
+# POST /api/reset
+# 请求体: 无
+# 响应: {"success": true}
+# 说明: 恢复初始库存 + 清空交易记录 + 重置状态机（余额归零）
+@app.route('/api/reset', methods=['POST'])
+def api_reset():
+    # 重建库存
+    inv.channels = []
+    for ch in CHANNEL_CONFIG:
+        inv.channels.append({
+            "id": ch["id"], "name": ch["name"],
+            "price": ch["price"], "stock": ch["init_stock"]
+        })
+    inv.transactions = []
+    inv.save()
+    # 重置状态机
+    sm.state = 0
+    sm.balance = 0
+    sm.selected_channel = None
+    return jsonify({"success": True})
 ```
 
 #### main 入口
@@ -783,7 +844,7 @@ if __name__ == '__main__':
         init_gpio()
         btn = CoinButton(COIN_BUTTON_PIN, on_coin_pressed)
         btn.start()
-        app.run(host='0.0.0.0', port=80, debug=False, threaded=True)
+        app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
     except KeyboardInterrupt:
         pass
     finally:
@@ -792,103 +853,103 @@ if __name__ == '__main__':
 
 ### 3.4 Person D — static/ 前端页面
 
-**与后端唯一的沟通方式是通过 7 个 API 端点，所有数据格式已在 3.3 节定义。**
+**与后端唯一的沟通方式是通过 9 个 API 端点，所有数据格式已在 3.3 节定义。**
 
 #### 页面要求
 
-**index.html** — 单页应用，一个 HTML 包含 3 个视图：
+**index.html** — 单页应用，弹窗式交互（非多页切换）：
 
 ```html
-<!-- 视图1: 主界面 -->
+<!-- 主界面 -->
 <div id="page-main">
-  <div class="header">余额: ¥<span id="balance">0</span></div>
-  <button id="btn-coin" class="coin-btn">投币 +1元</button>
-  <div id="product-list">
+  <div class="header">
+    <h1>智能口罩贩卖机</h1>
+    <div class="balance-display">余额: ¥<span id="balance">0</span></div>
+  </div>
+  <button class="coin-btn" onclick="doCoin()">投币 +1元</button>
+  <div class="product-grid" id="product-list">
     <!-- JS 动态渲染，每个卡片包含: 名称、价格、库存、购买按钮 -->
   </div>
-  <button id="btn-cancel" class="cancel-btn" style="display:none">取消交易</button>
+  <button class="cancel-btn" id="btn-cancel" style="display:none" onclick="doCancel()">取消交易</button>
 </div>
 
-<!-- 视图2: 确认弹窗（遮罩层） -->
-<div id="page-confirm" class="modal" style="display:none">
+<!-- 确认弹窗（遮罩层 modal，非页面切换） -->
+<div class="modal" id="popup-confirm" style="display:none">
+  <div class="modal-overlay" onclick="closePopup()"></div>
   <div class="modal-content">
-    <p>商品: <span id="confirm-name"></span></p>
-    <p>金额: ¥<span id="confirm-price"></span></p>
-    <p>余额: ¥<span id="confirm-balance"></span></p>
-    <button id="btn-confirm-yes">确认购买</button>
-    <button id="btn-confirm-no">取消</button>
+    <h2>请确认购买</h2>
+    <div>商品: <span id="cf-name">--</span></div>
+    <div>金额: ¥<span id="cf-price">0</span></div>
+    <div>购买后余额: ¥<span id="cf-after">0</span></div>
+    <button onclick="closePopup()">取消</button>
+    <button id="btn-confirm-ok" onclick="doConfirm()">确认购买</button>
   </div>
 </div>
 
-<!-- 视图3: 结果页 -->
-<div id="page-result" style="display:none">
-  <div id="result-icon"></div>      <!-- ✅ 或 ❌ -->
-  <div id="result-message"></div>   <!-- 成功/失败原因 -->
-  <div id="result-timer">3秒后返回</div>
+<!-- 结果弹窗（遮罩层 modal） -->
+<div class="modal" id="popup-result" style="display:none">
+  <div class="modal-content">
+    <div class="result-icon" id="res-icon"></div>
+    <div class="result-message" id="res-msg"></div>
+    <div class="progress-wrapper" id="res-progress">
+      <div class="progress-bar" id="bar-inner"></div>  <!-- 30秒进度条动画 -->
+    </div>
+    <div class="result-timer" id="res-timer">30秒后返回</div>
+  </div>
 </div>
 ```
 
 **核心 JS 函数：**
 
 ```javascript
-// ===== API 基地址 =====
-const API_BASE = window.location.origin;
+// ===== 全局状态 =====
+var _state = {state:0, state_name:'IDLE', balance:0, selected_channel:null, channels:[]};
+var _lock = false;  // 防重复提交锁
 
-// ===== 页面状态 =====
-let state = {
-    state: 0,
-    state_name: 'IDLE',
-    balance: 0,
-    selected_channel: null,
-    channels: []
-};
-
-// ===== 1. 轮询状态 =====
-async function fetchStatus() {
-    /** 每 1 秒调用 /api/status，更新全局 state 和 UI */
-    const res = await fetch(`${API_BASE}/api/status`);
-    state = await res.json();
-    renderUI();
+// ===== 1. 轮询状态（1.5 秒间隔）=====
+function fetchStatus() {
+    api('/api/status').then(function(d) {
+        var prev = _state.state;
+        _state = d;
+        renderProducts();
+        // 检测 DISPENSE(2)→IDLE(0) 自动关闭结果弹窗
+        if (prev === 2 && d.state === 0) {
+            document.getElementById('popup-result').style.display = 'none';
+        }
+    });
 }
+setInterval(fetchStatus, 1500);
+fetchStatus();
 
 // ===== 2. 投币 =====
-async function onCoinClick() {
-    /** POST /api/coin → 更新余额显示 */
+function doCoin() {
+    /** POST /api/coin → 更新余额 */
 }
 
 // ===== 3. 选择商品 =====
-async function onBuyClick(channelId) {
-    /** POST /api/select/{id} → 成功则弹出确认页 */
+function doBuy(ch) {
+    /** POST /api/select/{id} → 成功则弹出确认弹窗 popup-confirm */
 }
 
 // ===== 4. 确认购买 =====
-async function onConfirmClick() {
-    /** POST /api/confirm → 成功则切换到结果页(出货动画) */
+function doConfirm() {
+    /** POST /api/confirm → 成功则显示结果弹窗 + 30秒进度条 */
 }
 
-// ===== 5. 取消 =====
-async function onCancelClick() {
-    /** POST /api/cancel → 余额归零，回到主界面 */
+// ===== 5. 关闭弹窗（取消选择）=====
+function closePopup() {
+    /** 关闭确认弹窗，POST /api/cancel_select 保留余额 */
 }
 
-// ===== 6. UI 渲染 =====
-function renderUI() {
-    /**
-     * 根据 state 刷新:
-     * - 余额文本
-     * - 商品卡片的购买按钮状态（余额不足/库存不足时 disabled）
-     * - 取消按钮显隐
-     */
+// ===== 6. 取消交易 =====
+function doCancel() {
+    /** POST /api/cancel → 余额清零 */
 }
 
-// ===== 7. 视图切换 =====
-function showPage(pageId) {
-    /** 显示指定视图，隐藏其他视图 */
+// ===== 7. 结果弹窗 =====
+function showResult(ok, msg) {
+    /** 显示结果弹窗，启动倒计时，成功后自动检测 DISPENSE→IDLE 关闭 */
 }
-
-// ===== 初始化 =====
-setInterval(fetchStatus, 1000);   // 每秒轮询
-fetchStatus();                     // 首次立即获取
 ```
 
 **style.css 要求：**
@@ -907,7 +968,7 @@ body 背景色 #1a1a2e (暗色主题)
 .header: 大字号, 显眼位置
 /* 出货动画 */
 @keyframes progress { from { width: 0% } to { width: 100% } }
-.progress-bar { height: 20px; background: linear-gradient(...); animation: progress 2s }
+.progress-bar { height: 20px; background: linear-gradient(...); animation: progress-animation 30s linear forwards }
 /* 结果页 */
 .result-success { color: #4caf50; font-size: 48px }  /* ✅ */
 .result-fail { color: #f44336; font-size: 48px }     /* ❌ */
