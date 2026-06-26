@@ -1,0 +1,354 @@
+/* 暗色主题 — 移动端响应式 */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0f0f1a;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+}
+
+#app {
+    width: 100%;
+    max-width: 480px;
+    background: #1a1a2e;
+    min-height: 100vh;
+    padding: 20px 16px 40px;
+    position: relative;
+    color: #eee;
+    box-shadow: 0 0 20px rgba(0,0,0,0.5);
+}
+
+/* ===== 头部 ===== */
+.header {
+    background: #16213e;
+    border-radius: 16px;
+    padding: 16px 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.header h1 {
+    font-size: 18px;
+    color: #a0a8c0;
+}
+
+.balance-display {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+}
+
+.balance-label {
+    font-size: 14px;
+    color: #888;
+}
+
+.balance-amount {
+    font-size: 32px;
+    font-weight: bold;
+    color: #ffd700;
+}
+
+/* ===== 投币按钮 ===== */
+.coin-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding: 18px;
+    font-size: 22px;
+    font-weight: bold;
+    background: #4caf50;
+    color: white;
+    border: none;
+    border-radius: 50px;
+    cursor: pointer;
+    margin-bottom: 24px;
+    box-shadow: 0 6px 15px rgba(76, 175, 80, 0.4);
+    transition: transform 0.1s ease, background 0.2s;
+}
+
+.coin-btn:active {
+    transform: scale(0.96);
+    background: #43a047;
+}
+
+.coin-icon {
+    font-size: 28px;
+    line-height: 1;
+}
+
+/* ===== 商品网格 ===== */
+.product-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+/* 卡片样式：白色背景、圆角12px、阴影 */
+.card {
+    background: #ffffff;
+    color: #1a1a2e;
+    border-radius: 12px;
+    padding: 16px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+    transition: transform 0.1s, box-shadow 0.2s;
+}
+
+.card:active {
+    transform: scale(0.98);
+}
+
+.card .product-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+}
+
+.card .product-name {
+    font-weight: 600;
+    font-size: 18px;
+}
+
+.card .product-price {
+    color: #2e7d32;
+    font-weight: bold;
+    font-size: 20px;
+}
+
+.card .product-stock {
+    font-size: 14px;
+    color: #666;
+}
+
+.card .product-btn {
+    padding: 10px 24px;
+    border: none;
+    border-radius: 8px;
+    font-weight: bold;
+    font-size: 16px;
+    cursor: pointer;
+    background: #2196f3;
+    color: white;
+    transition: background 0.2s, opacity 0.2s;
+    white-space: nowrap;
+}
+
+.card .product-btn:disabled {
+    background: #bdbdbd;
+    color: #666;
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
+.card .product-btn:not(:disabled):active {
+    background: #1976d2;
+}
+
+/* ===== 取消按钮 ===== */
+.cancel-btn {
+    width: 100%;
+    padding: 16px;
+    font-size: 18px;
+    font-weight: bold;
+    background: #f44336;
+    color: white;
+    border: none;
+    border-radius: 50px;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(244, 67, 54, 0.4);
+    transition: transform 0.1s, background 0.2s;
+}
+
+.cancel-btn:active {
+    transform: scale(0.96);
+    background: #d32f2f;
+}
+
+/* ===== 确认弹窗（遮罩层） ===== */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal-overlay {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.6);
+}
+
+.modal-content {
+    background: #1e2746;
+    border-radius: 20px;
+    padding: 24px;
+    width: 85%;
+    max-width: 360px;
+    z-index: 101;
+    color: white;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+}
+
+.modal-title {
+    font-size: 22px;
+    margin-bottom: 20px;
+    text-align: center;
+}
+
+.modal-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 14px;
+    font-size: 16px;
+}
+
+.modal-label {
+    color: #a0a8c0;
+}
+
+.modal-value {
+    font-weight: bold;
+}
+
+.modal-value.price {
+    color: #ff9800;
+}
+
+.after-purchase {
+    border-top: 1px solid #444;
+    padding-top: 10px;
+}
+
+.after-price {
+    color: #4caf50;
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 24px;
+    gap: 12px;
+}
+
+.btn-confirm-yes {
+    flex: 2;
+    background: #4caf50;
+    border: none;
+    padding: 14px;
+    border-radius: 12px;
+    font-size: 18px;
+    font-weight: bold;
+    color: white;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.btn-confirm-yes:active {
+    background: #388e3c;
+}
+
+.btn-confirm-no {
+    flex: 1;
+    background: #9e9e9e;
+    border: none;
+    padding: 14px;
+    border-radius: 12px;
+    font-size: 18px;
+    font-weight: bold;
+    color: white;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.btn-confirm-no:active {
+    background: #757575;
+}
+
+/* ===== 结果页 ===== */
+.result-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 60vh;
+    gap: 20px;
+    text-align: center;
+    padding: 20px;
+}
+
+.result-icon {
+    font-size: 80px;
+    line-height: 1;
+}
+
+.result-message {
+    font-size: 24px;
+    font-weight: bold;
+    margin-bottom: 10px;
+}
+
+/* 进度条 */
+.progress-wrapper {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+}
+
+.progress-container {
+    width: 80%;
+    height: 12px;
+    background: #333;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.progress-bar {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #4caf50, #8bc34a);
+    border-radius: 6px;
+    animation: progress-animation 2s ease-out forwards;
+}
+
+@keyframes progress-animation {
+    from { width: 0%; }
+    to { width: 100%; }
+}
+
+.progress-label {
+    font-size: 16px;
+    color: #ccc;
+}
+
+.result-timer {
+    font-size: 18px;
+    color: #aaa;
+    margin-top: 20px;
+}

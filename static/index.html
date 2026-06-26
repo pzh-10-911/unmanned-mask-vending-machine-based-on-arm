@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>智能口罩贩卖机</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div id="app">
+
+        <!-- 主界面 -->
+        <div id="page-main">
+            <div class="header">
+                <h1>智能口罩贩卖机</h1>
+                <div class="balance-display">
+                    <span class="balance-label">余额</span>
+                    <span class="balance-amount">¥<span id="balance">0</span></span>
+                </div>
+            </div>
+
+            <button type="button" class="coin-btn" onclick="doCoin()">
+                <span class="coin-icon">+</span> 投币 +1元
+            </button>
+
+            <div class="product-grid" id="product-list"></div>
+
+            <button type="button" class="cancel-btn" id="btn-cancel" style="display:none" onclick="doCancel()">取消交易</button>
+        </div>
+
+        <!-- 确认弹窗 -->
+        <div class="modal" id="popup-confirm" style="display:none">
+            <div class="modal-overlay" onclick="closePopup()"></div>
+            <div class="modal-content">
+                <h2 class="modal-title">请确认购买</h2>
+                <div class="modal-row">
+                    <span class="modal-label">商品</span>
+                    <span class="modal-value" id="cf-name">--</span>
+                </div>
+                <div class="modal-row">
+                    <span class="modal-label">金额</span>
+                    <span class="modal-value price">¥<span id="cf-price">0</span></span>
+                </div>
+                <div class="modal-row after-purchase">
+                    <span class="modal-label">当前余额</span>
+                    <span class="modal-value">¥<span id="cf-balance">0</span></span>
+                </div>
+                <div class="modal-row">
+                    <span class="modal-label">购买后余额</span>
+                    <span class="modal-value after-price">¥<span id="cf-after">0</span></span>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn-confirm-no" onclick="closePopup()">取消</button>
+                    <button type="button" class="btn-confirm-yes" id="btn-confirm-ok" onclick="doConfirm()">确认购买</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 结果弹窗 -->
+        <div class="modal" id="popup-result" style="display:none">
+            <div class="modal-content" style="text-align:center">
+                <div class="result-icon" id="res-icon"></div>
+                <div class="result-message" id="res-msg"></div>
+                <div class="progress-wrapper" id="res-progress" style="display:none">
+                    <div class="progress-container">
+                        <div class="progress-bar" id="bar-inner"></div>
+                    </div>
+                    <span class="progress-label">出货中...</span>
+                </div>
+                <div class="result-timer" id="res-timer">30秒后返回</div>
+            </div>
+        </div>
+
+    </div>
+
+<script>
+var BASE = window.location.origin;
+var _state = {state:0,state_name:'IDLE',balance:0,selected_channel:null,channels:[]};
+var _sel = null;
+var _timer = null;
+var _lock = false;
+
+fetchStatus();
+setInterval(fetchStatus, 1500);
+
+function api(url,method){
+    return fetch(BASE+url,{method:method||'GET'}).then(function(r){return r.json();});
+}
+
+function fetchStatus(){
+    api('/api/status').then(function(d){
+        var prev=_state.state;
+        _state=d;
+        document.getElementById('balance').textContent=d.balance;
+        document.getElementById('btn-cancel').style.display=(d.balance>0&&d.state===0)?'block':'none';
+        renderProducts();
+        if(prev===2 && d.state===0){
+            document.getElementById('popup-result').style.display='none';
+            if(_timer){clearInterval(_timer);_timer=null;}
+        }
+    }).catch(function(){});
+}
+
+function renderProducts(){
+    var list=document.getElementById('product-list');
+    list.innerHTML='';
+    _state.channels.forEach(function(ch){
+        var ok=ch.available&&_state.balance>=ch.price&&_state.state===0;
+        var txt=ch.available?(_state.balance<ch.price?'余额不足':'购买'):'缺货';
+        var card=document.createElement('div');
+        card.className='card';
+        card.innerHTML='<div class=\"product-info\"><span class=\"product-name\">'+ch.name+'</span><span class=\"product-price\">¥'+ch.price.toFixed(1)+'</span><span class=\"product-stock\">库存: '+ch.stock+'</span></div>';
+        var btn=document.createElement('button');
+        btn.className='product-btn';
+        btn.textContent=txt;
+        if(!ok) btn.disabled=true;
+        (function(cid){btn.onclick=function(){doBuy(cid);};})(ch.id);
+        card.appendChild(btn);
+        list.appendChild(card);
+    });
+}
+
+function doCoin(){
+    if(_lock) return;
+    api('/api/coin','POST').then(function(d){_state.balance=d.balance;renderProducts();}).catch(function(){});
+}
+
+function doBuy(ch){
+    if(_lock) return;
+    if(_state.state!==0){alert('请先完成当前操作');return;}
+    api('/api/select/'+ch,'POST').then(function(d){
+        if(d.success){
+            _sel=d;
+            document.getElementById('cf-name').textContent=d.name;
+            document.getElementById('cf-price').textContent=d.price.toFixed(1);
+            document.getElementById('cf-balance').textContent=_state.balance.toFixed(1);
+            document.getElementById('cf-after').textContent=(_state.balance-d.price).toFixed(1);
+            document.getElementById('btn-confirm-ok').disabled=false;
+            document.getElementById('popup-confirm').style.display='flex';
+        }else{alert(d.msg);}
+    }).catch(function(e){alert('请求失败');});
+}
+
+function doConfirm(){
+    if(_lock) return;
+    _lock=true;
+    document.getElementById('btn-confirm-ok').disabled=true;
+    document.getElementById('popup-confirm').style.display='none';
+    api('/api/confirm','POST').then(function(d){
+        showResult(d.success, d.msg||'');
+    }).catch(function(e){
+        showResult(false, e.message);
+    }).finally(function(){_lock=false;});
+}
+
+function closePopup(){
+    document.getElementById('popup-confirm').style.display='none';
+    if(_state.state===1){api('/api/cancel_select','POST').catch(function(){});}
+    _sel=null;
+}
+
+function doCancel(){
+    if(_lock) return;
+    api('/api/cancel','POST').then(function(){
+        _state.balance=0;_state.selected_channel=null;renderProducts();
+    }).catch(function(){
+        _state.balance=0;_state.selected_channel=null;renderProducts();
+    });
+}
+
+function showResult(ok,msg){
+    var el=document.getElementById('popup-result');
+    document.getElementById('res-icon').textContent=ok?'请取货':'失败';
+    document.getElementById('res-msg').textContent=ok?'购买成功！请取走口罩':(msg||'交易失败');
+    var prog=document.getElementById('res-progress');
+    prog.style.display=ok?'flex':'none';
+    if(ok){
+        if(_sel){_state.balance-=_sel.price;}
+        _sel=null;
+        var bar=document.getElementById('bar-inner');
+        bar.style.animation='none';
+        bar.offsetHeight;
+        bar.style.animation='progress-animation 30s linear forwards';
+    }
+    el.style.display='flex';
+    if(_timer) clearInterval(_timer);
+    var n=ok?30:3;
+    var tel=document.getElementById('res-timer');
+    tel.textContent=n+' 秒后返回';
+    _timer=setInterval(function(){
+        n--;
+        if(n<=0){clearInterval(_timer);_timer=null;el.style.display='none';fetchStatus();}
+        else{tel.textContent=n+' 秒后返回';}
+    },1000);
+}
+</script>
+</body>
+</html>

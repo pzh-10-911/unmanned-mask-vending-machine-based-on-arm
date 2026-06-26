@@ -1,0 +1,60 @@
+{
+    "channels": [
+        {
+            "id": 0,
+            "name": "成人口罩",
+            "price": 2.0,
+            "stock": 7
+        },
+        {
+            "id": 1,
+            "name": "儿童口罩",
+            "price": 2.0,
+            "stock": 10
+        },
+        {
+            "id": 2,
+            "name": "N95口罩",
+            "price": 5.0,
+            "stock": 2
+        }
+    ],
+    "transactions": [
+        {
+            "time": "2026-06-26 20:00:10",
+            "item": "成人口罩",
+            "amount": 2.0,
+            "status": "success"
+        },
+        {
+            "time": "2026-06-26 20:00:11",
+            "item": "N95口罩",
+            "amount": 5.0,
+            "status": "success"
+        },
+        {
+            "time": "2026-06-26 20:00:12",
+            "item": "成人口罩",
+            "amount": 2.0,
+            "status": "success"
+        },
+        {
+            "time": "2026-06-26 20:00:13",
+            "item": "成人口罩",
+            "amount": 2.0,
+            "status": "success"
+        },
+        {
+            "time": "2026-06-26 20:00:14",
+            "item": "N95口罩",
+            "amount": 5.0,
+            "status": "success"
+        },
+        {
+            "time": "2026-06-26 20:00:15",
+            "item": "N95口罩",
+            "amount": 5.0,
+            "status": "success"
+        }
+    ]
+}
